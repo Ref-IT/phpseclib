@@ -3125,9 +3125,7 @@ class File_X509
     function _setCertificateValidity($date, $field)
     {
         $datedetails = @strptime($date, 'D, d M y H:i:s O');
-        // generalTime: @date('D, d M y H:i:s O');
-        if (!is_array($datedetails) || $datedetails["tm_year"] < 2050) /* need to use utcTime */
-        {
+        if (!is_array($datedetails) || $datedetails["tm_year"] < 2050) {
            $this->currentCert['tbsCertificate']['validity'][$field]['utcTime'] = $date;
            unset($this->currentCert['tbsCertificate']['validity'][$field]['generalTime']);
         } else {
