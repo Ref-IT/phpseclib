@@ -3117,6 +3117,26 @@ class File_X509
     }
 
     /**
+     * Sets $this->currentCert['tbsCertificate']['validity'] [$field][generalTime,utcTime]
+     * according to RFC3280 section 4.1.2.5 Validity
+     *
+     * General Time is used iff $date is >= 2050
+     */
+    function _setCertificateValidity($date, $field)
+    {
+        $datedetails = @strptime($date, 'D, d M y H:i:s O');
+        // generalTime: @date('D, d M y H:i:s O');
+        if (!is_array($datedetails) || $datedetails["tm_year"] < 2050) /* need to use utcTime */
+        {
+           $this->currentCert['tbsCertificate']['validity'][$field]['utcTime'] = $date;
+           unset($this->currentCert['tbsCertificate']['validity'][$field]['generalTime']);
+        } else {
+           $this->currentCert['tbsCertificate']['validity'][$field]['generalTime'] = $date;
+           unset($this->currentCert['tbsCertificate']['validity'][$field]['utcTime']);
+        }
+    }
+
+    /**
      * Sign an X.509 certificate
      *
      * $issuer's private key needs to be loaded.
@@ -3148,12 +3168,10 @@ class File_X509
             $this->currentCert['signatureAlgorithm']['algorithm'] = $signatureAlgorithm;
 
             if (!empty($this->startDate)) {
-                $this->currentCert['tbsCertificate']['validity']['notBefore']['generalTime'] = $this->startDate;
-                unset($this->currentCert['tbsCertificate']['validity']['notBefore']['utcTime']);
+                $this->_setCertificateValidity($this->startDate, 'notBefore');
             }
             if (!empty($this->endDate)) {
-                $this->currentCert['tbsCertificate']['validity']['notAfter']['generalTime'] = $this->endDate;
-                unset($this->currentCert['tbsCertificate']['validity']['notAfter']['utcTime']);
+                $this->_setCertificateValidity($this->endDate, 'notAfter');
             }
             if (!empty($this->serialNumber)) {
                 $this->currentCert['tbsCertificate']['serialNumber'] = $this->serialNumber;
@@ -3186,16 +3204,15 @@ class File_X509
                         'serialNumber' => $serialNumber, // $this->setserialNumber()
                         'signature' => array('algorithm' => $signatureAlgorithm),
                         'issuer' => false, // this is going to be overwritten later
-                        'validity' => array(
-                            'notBefore' => array('generalTime' => $startDate), // $this->setStartDate()
-                            'notAfter' => array('generalTime' => $endDate)   // $this->setEndDate()
-                        ),
+                        'validity' => array(), // this is going to be set later
                         'subject' => $subject->dn,
                         'subjectPublicKeyInfo' => $subjectPublicKey
                     ),
                 'signatureAlgorithm' => array('algorithm' => $signatureAlgorithm),
                 'signature'          => false // this is going to be overwritten later
             );
+            $this->_setCertificateValidity($startDate, 'notBefore');
+            $this->_setCertificateValidity($endDate, 'notAfter');
 
             // Copy extensions from CSR.
             $csrexts = $subject->getAttribute('pkcs-9-at-extensionRequest', 0);
