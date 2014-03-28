@@ -3117,20 +3117,24 @@ class File_X509
     }
 
     /**
-     * Sets $this->currentCert['tbsCertificate']['validity'] [$field][generalTime,utcTime]
-     * according to RFC3280 section 4.1.2.5 Validity
+     * Helper function to build a time field according to RFC 3280 section
+     *  - 4.1.2.5 Validity
+     *  - 5.1.2.4 This Update
+     *  - 5.1.2.5 Next Update
+     *  - 5.1.2.6 Revoked Certificates
+     * by choosing utcTime iff year of date given is before 2050 and generalTime else.
      *
-     * General Time is used iff $date is >= 2050
+     * @param String $date in format date('D, d M Y H:i:s O')
+     * @access private
+     * @return Array
      */
-    function _setCertificateValidity($date, $field)
+    function _timeField($date)
     {
-        $datedetails = @strptime($date, 'D, d M y H:i:s O');
-        if (!is_array($datedetails) || $datedetails["tm_year"] < 2050) {
-           $this->currentCert['tbsCertificate']['validity'][$field]['utcTime'] = $date;
-           unset($this->currentCert['tbsCertificate']['validity'][$field]['generalTime']);
+        $year = @gmdate("Y", @strtotime($date)); // the same way ASN1.php parses this
+        if ($year < 2050) {
+           return Array('utcTime' => $date);
         } else {
-           $this->currentCert['tbsCertificate']['validity'][$field]['generalTime'] = $date;
-           unset($this->currentCert['tbsCertificate']['validity'][$field]['utcTime']);
+           return Array('generalTime' => $date);
         }
     }
 
@@ -3166,10 +3170,10 @@ class File_X509
             $this->currentCert['signatureAlgorithm']['algorithm'] = $signatureAlgorithm;
 
             if (!empty($this->startDate)) {
-                $this->_setCertificateValidity($this->startDate, 'notBefore');
+                $this->currentCert['tbsCertificate']['validity']['notBefore'] = $this->_timeField($this->startDate);
             }
             if (!empty($this->endDate)) {
-                $this->_setCertificateValidity($this->endDate, 'notAfter');
+                $this->currentCert['tbsCertificate']['validity']['notAfter'] = $this->_timeField($this->endDate);
             }
             if (!empty($this->serialNumber)) {
                 $this->currentCert['tbsCertificate']['serialNumber'] = $this->serialNumber;
@@ -3191,8 +3195,8 @@ class File_X509
                 return false;
             }
 
-            $startDate = !empty($this->startDate) ? $this->startDate : @date('D, d M y H:i:s O');
-            $endDate = !empty($this->endDate) ? $this->endDate : @date('D, d M y H:i:s O', strtotime('+1 year'));
+            $startDate = !empty($this->startDate) ? $this->startDate : @date('D, d M Y H:i:s O');
+            $endDate = !empty($this->endDate) ? $this->endDate : @date('D, d M Y H:i:s O', strtotime('+1 year'));
             $serialNumber = !empty($this->serialNumber) ? $this->serialNumber : new Math_BigInteger();
 
             $this->currentCert = array(
@@ -3202,7 +3206,10 @@ class File_X509
                         'serialNumber' => $serialNumber, // $this->setserialNumber()
                         'signature' => array('algorithm' => $signatureAlgorithm),
                         'issuer' => false, // this is going to be overwritten later
-                        'validity' => array(), // this is going to be set later
+                        'validity' => array(
+                            'notBefore' => $this->_timeField($startDate), // $this->setStartDate()
+                            'notAfter' => $this->_timeField($endDate)   // $this->setEndDate()
+                        ),
                         'subject' => $subject->dn,
                         'subjectPublicKeyInfo' => $subjectPublicKey
                     ),
@@ -3382,7 +3389,7 @@ class File_X509
 
         $currentCert = isset($this->currentCert) ? $this->currentCert : null;
         $signatureSubject = isset($this->signatureSubject) ? $this->signatureSubject : null;
-        $thisUpdate = !empty($this->startDate) ? $this->startDate : @date('D, d M y H:i:s O');
+        $thisUpdate = !empty($this->startDate) ? $this->startDate : @date('D, d M Y H:i:s O');
 
         if (isset($crl->currentCert) && is_array($crl->currentCert) && isset($crl->currentCert['tbsCertList'])) {
             $this->currentCert = $crl->currentCert;
@@ -3395,7 +3402,7 @@ class File_X509
                         'version' => 'v2',
                         'signature' => array('algorithm' => $signatureAlgorithm),
                         'issuer' => false, // this is going to be overwritten later
-                        'thisUpdate' => array('generalTime' => $thisUpdate) // $this->setStartDate()
+                        'thisUpdate' => $this->_timeField($thisUpdate) // $this->setStartDate()
                     ),
                 'signatureAlgorithm' => array('algorithm' => $signatureAlgorithm),
                 'signature'          => false // this is going to be overwritten later
@@ -3404,10 +3411,10 @@ class File_X509
 
         $tbsCertList = &$this->currentCert['tbsCertList'];
         $tbsCertList['issuer'] = $issuer->dn;
-        $tbsCertList['thisUpdate'] = array('generalTime' => $thisUpdate);
+        $tbsCertList['thisUpdate'] = $this->_timeField($thisUpdate);
 
         if (!empty($this->endDate)) {
-            $tbsCertList['nextUpdate'] = array('generalTime' => $this->endDate); // $this->setEndDate()
+            $tbsCertList['nextUpdate'] = $this->_timeField($this->endDate); // $this->setEndDate()
         } else {
             unset($tbsCertList['nextUpdate']);
         }
@@ -3530,7 +3537,7 @@ class File_X509
      */
     function setStartDate($date)
     {
-        $this->startDate = @date('D, d M y H:i:s O', @strtotime($date));
+        $this->startDate = @date('D, d M Y H:i:s O', @strtotime($date));
     }
 
     /**
@@ -3554,7 +3561,7 @@ class File_X509
             $temp = chr(FILE_ASN1_TYPE_GENERALIZED_TIME) . $asn1->_encodeLength(strlen($temp)) . $temp;
             $this->endDate = new File_ASN1_Element($temp);
         } else {
-            $this->endDate = @date('D, d M y H:i:s O', @strtotime($date));
+            $this->endDate = @date('D, d M Y H:i:s O', @strtotime($date));
         }
     }
 
@@ -4228,7 +4235,7 @@ class File_X509
 
         $i = count($rclist);
         $rclist[] = array('userCertificate' => $serial,
-                          'revocationDate'  => array('generalTime' => @date('D, d M y H:i:s O')));
+                          'revocationDate'  => $this->_timeField(@date('D, d M Y H:i:s O')));
         return $i;
     }
 
@@ -4248,7 +4255,7 @@ class File_X509
                     if (($i = $this->_revokedCertificate($rclist, $serial, true)) !== false) {
 
                         if (!empty($date)) {
-                            $rclist[$i]['revocationDate'] = array('generalTime' => $date);
+                            $rclist[$i]['revocationDate'] = $this->_timeField($date);
                         }
 
                         return true;
