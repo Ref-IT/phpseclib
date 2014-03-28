@@ -3216,8 +3216,6 @@ class File_X509
                 'signatureAlgorithm' => array('algorithm' => $signatureAlgorithm),
                 'signature'          => false // this is going to be overwritten later
             );
-            $this->_setCertificateValidity($startDate, 'notBefore');
-            $this->_setCertificateValidity($endDate, 'notAfter');
 
             // Copy extensions from CSR.
             $csrexts = $subject->getAttribute('pkcs-9-at-extensionRequest', 0);
